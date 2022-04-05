@@ -1,0 +1,23 @@
+port 26379
+dir "/etc/redis"
+daemonize yes
+logfile /var/log/redis/redis-sentinel.log
+pidfile /var/run/redis/redis-sentinel.pid
+{% if salt['grains.get']('environment', 'production') == 'production' %}
+bind {{ pillar['private_address'] }} 127.0.0.1
+
+{%- for server, args in pillar['redis']['cluster'].iteritems() %}
+{%- for instance, args2 in pillar['redis']['cluster'][server].iteritems() %}
+{%- if pillar['redis']['cluster'][server][instance]['master'] %}
+sentinel monitor {{ pillar['redis']['cluster'][server][instance]['clustername'] }}-{{ instance }} {{ salt['mine.get'](server|lower, 'network.ip_addrs').get(server|lower)[0] }} {{ pillar['redis']['cluster'][server][instance]['port'] }} 5
+sentinel down-after-milliseconds {{ pillar['redis']['cluster'][server][instance]['clustername'] }}-{{ instance }} 10000
+sentinel failover-timeout {{ pillar['redis']['cluster'][server][instance]['clustername'] }}-{{ instance }} 5000
+{%- endif %}
+{% endfor %}
+{%- endfor %}
+{% else %}
+bind 127.0.0.1
+sentinel monitor localhost 127.0.0.1 6379 1
+sentinel down-after-milliseconds localhost 2000
+sentinel failover-timeout localhost 5000
+{% endif %}

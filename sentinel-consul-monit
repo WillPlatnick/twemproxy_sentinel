@@ -1,0 +1,5 @@
+check process sentinel-consul with pidfile /var/run/sentinel-consul.pid
+        alert youversion.alerts@lifechurch.tv ON { invalid, nonexist, timeout, resource, size, timestamp }
+        start program = "/usr/sbin/service sentinel-consul start"
+        stop program = "/usr/sbin/service sentinel-consul stop"
+        if totalmemory > 1 GB then restart

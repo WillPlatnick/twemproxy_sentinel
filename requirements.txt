@@ -1,0 +1,3 @@
+redis==2.10.3
+pyconsul==0.0.3
+slackweb==1.0.5

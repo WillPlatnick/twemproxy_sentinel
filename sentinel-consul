@@ -1,0 +1,72 @@
+#!/usr/bin/env python
+
+import logging
+import time
+import sys
+import redis
+import socket
+import slackweb
+import traceback
+from pyconsul.http import Consul
+
+log = "/var/log/sentinel-consul.log"
+logger = logging.getLogger("sentinel-consul")
+handler = logging.FileHandler(log)
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.addHandler(logging.StreamHandler())
+logger.setLevel(logging.INFO)
+
+KEYPATH_PREFIX = "key/prod/redis/"
+KEYPATH_POSTFIX = "/master/ip"
+
+slack = slackweb.Slack(url="{{ salt['pillar.get']('slack_url') }}")
+
+def notify_slack(message):
+    try:
+        slack.notify(text=message)
+    except Exception, e:
+        logger.error("Unable to notify slack. No biggie, continuing.")
+        logger.error(traceback.format_exc())
+
+def work(item):
+    items = str(item['data']).split()
+    if items[0] == "1":
+        return 0
+    key = KEYPATH_PREFIX + items[0].replace('-','_').replace('.','_') + KEYPATH_POSTFIX
+    old_master_ip = items[1]
+    old_master_port = items[2]
+    new_master_ip = items[3]
+    new_master_port = items[4]
+    message = "Received a server election report for {0} Old Master: {1}:{2} New Master: {3}:{4}".format(items[0], old_master_ip, old_master_port, new_master_ip, new_master_port)
+    logger.info(message)
+    notify_slack(message)
+    try:
+        c = Consul()
+        if c.storage.set(key, new_master_ip):
+            message = "Successfully changed the {0} key to {1}".format(key, new_master_ip)
+            logger.info(message)
+            notify_slack(message)
+        else:
+            message = "Consul request succeeded for {0} but returned false, so it supposedly isn't set. This shouldn't happen.".format(key)
+            logger.info(message)
+            notify_slack(message)
+    except Exception, e:
+        message = "Unable to set consul key. See log for more information."
+        logger.error(message)
+        notify_slack(message)
+        logger.error(traceback.format_exc())
+        raise
+
+if __name__ == "__main__":
+    try:
+        r = redis.StrictRedis('127.0.0.1', 26379)
+        pubsub = r.pubsub()
+        pubsub.subscribe("+switch-master")
+        logger.info("Successfully connected to Redis Sentinel")
+    except Exception, e:
+        logger.error(traceback.format_exc())
+        raise
+    for item in pubsub.listen():
+        work(item)
